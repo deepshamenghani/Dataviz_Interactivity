@@ -1,0 +1,386 @@
+---
+title: "Data visualization animations and interactivity"
+description: Showing ways to animate data visuzalization!
+author: Deepsha Menghani
+format: 
+  revealjs:
+    code-fold: false
+    theme: white
+link-citations: yes
+editor: visual
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = FALSE,
+  eval = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  out.width = "80%",
+  out.height = "600px",
+  dpi = 600,
+  fig.align = "center"
+)
+```
+
+```{r install packages, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE, eval=TRUE}
+
+packages <- c("tidyverse"
+,"anytime"
+,"plotly"
+,"gganimate"
+,"transformr"
+,"gifski"
+,"png"
+,"usa"
+,"usmap",
+"DT",
+"crosstalk"
+)
+
+package.check <- lapply(packages, FUN = function(x) {
+    if (!require(x, character.only = TRUE)) {
+        install.packages(x, dependencies = TRUE)
+        library(x, character.only = TRUE)
+    }
+})
+ 
+
+```
+
+------------------------------------------------------------------------
+
+> ## How much do data visualizations add to story telling?
+
+<br>
+
+A. Little BAM.
+
+B. BAM!
+
+C. Double BAM!!
+
+D. Triple BAM!!!
+
+<br>
+
+*(Psssss: BAMs are courtesy Josh Stramer)*
+
+## Triple BAM!!!
+
+## But why do we care about animated visualizations?
+
+<br>
+
+-   To create Involuntary Shifts of Attention
+
+-   Drive your point across impactfully
+
+-   And sometimes, because it looks pretty
+
+## Let's jump into an example
+
+```{r}
+library(tidyverse)
+
+# Read the population dataset
+population_dataset <- readxl::read_xlsx("population_and_density_change_data_table_US_by_state_1910to2020.xlsx") %>% 
+    select(Name, `Geography Type`, Year, `Resident Population`, `Resident Population Density`)
+
+# Clean data ----
+
+colnames(population_dataset) <- gsub(" ", "_",colnames(population_dataset))
+
+# Get the list of states and state count for creating ranking
+state_list <- population_dataset %>% distinct(Name) %>% pull()
+state_count <- length(state_list)
+
+population_dataset_clean <- population_dataset %>% 
+    # create a clean date column
+    mutate(Date = anydate(str_c("01/01/",Year),"%m/%d/%y")) %>%
+    # filter for state list
+    filter(Geography_Type == "State") %>%
+    # Create a rank column for population and density by year
+    # Higher Rank implies higher density relative to other states
+    group_by(Year) %>% 
+    arrange(Resident_Population_Density) %>% 
+    mutate(Rank_Population_Density = row_number()) %>% 
+    ungroup() %>% 
+    # Create label columns to use in plots    
+    mutate(label_state = str_c(Name,"\n",Year)) %>%
+    mutate(label_plotly = str_c(Name, "\n", Year, "\nResident Population Density: ", Resident_Population_Density, "\n", "Rank: ", Rank_Population_Density)) 
+
+plot_density_vs_rank <- function(data, state_input) {
+    # Filter data for the states input
+    data_filtered <- data %>% 
+        filter(Name %in% (state_input))
+    
+    plot <- data_filtered %>%
+        ggplot(aes(y = Rank_Population_Density, x = Resident_Population_Density,  color = Name)) +
+        geom_point(aes(text = label_plotly), alpha = 0.5,
+                   show.legend = FALSE, size = 4) +
+        geom_line(aes(y = Rank_Population_Density, x = Resident_Population_Density, color = Name), size = 1, alpha = 0.5)+
+        theme_classic() +
+        theme(
+            text = element_text(family = "mukta"),
+            plot.title = element_text(face = "bold",
+                                      size = 14,
+                                      hjust = .5),
+            plot.subtitle = element_text(size = 12,
+                                         hjust = .5),
+            plot.caption = element_text(size = 10),
+            axis.text.x = element_text(size = 20),
+            axis.text.y = element_text(size = 20),
+            axis.title.x = element_text(size = 15),
+            axis.title.y = element_text(size = 15)
+        ) +
+        ggrepel::geom_text_repel(aes(y = Rank_Population_Density, x = Resident_Population_Density, label = label_state, color = Name), nudge_x = 0.5, size = 5)  +
+        ylim(c(0, state_count)) +
+        labs(title = '', 
+             caption = "Data: US population by state",
+             y = 'Population Density Rank', 
+             x = 'Population Density') 
+    
+    return(plot)    
+}
+
+```
+
+# Package 1: GGAnimate
+
+## US population dataset
+
+<br>
+
+```{r}
+datatable(head(population_dataset_clean %>% filter(Name == "Alabama") %>% select(Name, Year, Population= Resident_Population, Density = Resident_Population_Density, Rank = Rank_Population_Density)))
+```
+
+## Single state plot
+
+```{r fig.height=4, fig.width=8, echo=TRUE}
+#| output-location: slide
+
+density_rank_ggplot <- plot_density_vs_rank(
+  data = population_dataset_clean, 
+  state_input = c('California')
+)
+
+ggplotly(density_rank_ggplot, tooltip = "text")
+```
+
+## Multiple state plot
+
+```{r fig.height=4, fig.width=8, echo=TRUE}
+#| output-location: slide
+
+## Plot for multiple states ----
+density_rank_plot_multistate <- plot_density_vs_rank(
+  data = population_dataset_clean,
+  state_input = c('California', 'Washington', 'Alabama', 'Pennsylvania')
+)
+
+ggplotly(density_rank_plot_multistate, tooltip = "text")
+```
+
+## Let's get animating!!!
+
+## A single line of code!
+
+```{r fig.height=4, fig.width=8, echo=TRUE}
+#| output-location: slide
+#| code-line-numbers: 2|5
+
+density_rank_plot_multistate_animated <- density_rank_plot_multistate +
+    transition_reveal(Date) + 
+    ease_aes('linear')
+
+animate(density_rank_plot_multistate_animated, duration =10, fps = 10, width = 900, height = 600, renderer = gifski_renderer())
+
+```
+
+## One more example - US state population map
+
+```{r}
+state_dim <- as.data.frame(states) # For getting latitude and longitude
+
+population_dataset_lat_long <- population_dataset_clean %>% 
+    # Get population data
+    select(name = Name, population = Resident_Population, Year)  %>%
+    # Create a label for plotting
+    mutate(label_plotly = str_c(name, "\n", Year, "\nPopulation: ", scales::number(population, scale = 1e-3, accuracy = 1, suffix = "K", big.mark = ","))) %>% 
+    # Join with dim table to get state longitude and latidude
+    left_join(state_dim %>% select(name, state=abb, lat, long)) %>% 
+    select(lon = long, lat, population, state, Year,label_plotly)
+
+## Map plotting function
+plot_usa_population_map <- function(data) {
+    
+    # Transform data for plotting points on map, note that the dataset to be transformed needs to contain "lat" and "lon" columns
+    data_transformed <- usmap_transform(data)
+    
+    # Create the map plot
+    plot_map <- plot_usmap(regions = "state", data=(data), values = "population",labels=TRUE)+
+        geom_point(data = data_transformed, aes(x = x, y = y, text=label_plotly),
+                   color = "white", alpha = 0.25, size = 0.001) +
+        labs(title = "US population by state",
+             # subtitle = 'Year: {closest_state}',
+             size = 20) +
+        scale_fill_continuous(low = "white", high ="darkblue", 
+                              name = "Population",label = scales::comma
+        ) + 
+        theme(
+            legend.position = "right",
+            plot.title = element_text(size=20),
+            plot.subtitle = element_text(size = 20)
+        )
+    
+    return(plot_map)
+}
+
+```
+
+## Population across states in 2022
+
+```{r echo=TRUE, fig.width=12, fig.height=8}
+#| output-location: slide
+
+## Plot for single year ----
+usa_population_map_single_year <- plot_usa_population_map(data = population_dataset_lat_long %>% filter(Year %in% (2020))) + theme(legend.position = "none")
+
+ggplotly(usa_population_map_single_year, tooltip = "text")
+```
+
+## 1990 vs 2020
+
+```{r echo=TRUE, fig.width=12, fig.height=8}
+#| output-location: slide
+#| code-line-numbers: 5|7 
+
+usa_population_map_multiyear <- plot_usa_population_map(data = population_dataset_lat_long %>% filter(Year %in% c(1910,2020)))
+
+usa_population_map_animated <- usa_population_map_multiyear +
+    labs(subtitle = 'Year: {closest_state}') +
+    transition_states(Year) + 
+    ease_aes('linear')
+
+animate(usa_population_map_animated, duration =2, fps = 10, width = 900, height = 600, renderer = gifski_renderer())
+
+```
+
+## Let's make that slower
+
+```{r echo=TRUE, fig.width=12, fig.height=8}
+#| output-location: slide
+#| code-line-numbers: 1|1 
+
+animate(usa_population_map_animated, duration =10, fps = 10, width = 900, height = 600, renderer = gifski_renderer())
+
+```
+
+## Not always rainbows and butterflies
+
+### Pros
+
+-   Easily animate almost any plot
+
+-   Make it part of your report or save as a gif
+
+### Cons
+
+-   No interactivity to pause and play
+
+-   Very slow rendering of gif
+
+-   Cannot focus on only part of the plot
+
+# Package 2: Plotly
+
+## Let's add interactivity to the plot
+
+```{r echo=TRUE}
+
+## Plotting function ----
+# Select states to plot
+
+state_selected <- c('California', 'Washington', 'Alabama', 'Pennsylvania')
+data <- population_dataset_clean %>% filter(Name %in% state_selected)
+
+## Convert to frames 
+
+data_med <- data %>%
+  arrange(Year, Name) %>% 
+  split(.$Year) %>%
+  accumulate(~bind_rows(.x, .y)) %>%
+  bind_rows(.id = "frame") %>%
+  group_by(frame) %>% 
+  arrange(Rank_Population_Density)
+
+```
+
+## Plot the frames
+
+```{r echo=TRUE, fig.width=12, fig.height=8}
+#| output-location: slide
+
+data_med %>%
+  plot_ly(x = ~Resident_Population_Density, y = ~Rank_Population_Density, color = ~Name,
+    hoverinfo = "text", text = ~paste0(Name,"\n",Year,"\n",Rank_Population_Density))  %>%
+  add_text(x = 250, y = 18, text = ~Year, frame = ~Year,
+           textfont = list(color = toRGB("gray80"), size = 40)) %>%
+  add_lines(frame = ~frame) %>%
+  add_markers(frame = ~frame) %>%
+  animation_opts(
+    frame = 1000, 
+    transition = 0, 
+    easing = "bounce"
+  ) %>% 
+  hide_legend()
+```
+
+## Highlight specific selections with Crosstalk
+
+```{r echo=TRUE}
+
+# Create a shared data object keyed by state
+state_data <- SharedData$new(data_med, key = ~Name, group = "Select a state")
+
+```
+
+## 
+
+```{r fig.width=12, fig.height=6}
+#| output-location: slide
+
+# Create a shared data object keyed by state
+state_data %>%
+  plot_ly(x = ~Resident_Population_Density, y = ~Rank_Population_Density, color = ~Name,
+    hoverinfo = "text", text = ~paste0(Name,"\n",Year,"\n",Rank_Population_Density))  %>%
+  add_text(x = 250, y = 18, text = ~Year, frame = ~Year,
+           textfont = list(color = toRGB("gray80"), size = 40)) %>%
+  add_lines(frame = ~frame) %>%
+  add_markers(frame = ~frame) %>%
+  animation_opts(
+    frame = 1000, 
+    transition = 0, 
+    easing = "bounce"
+  ) %>%
+  highlight(selectize = TRUE, persistent = TRUE) %>% 
+  hide_legend()
+
+```
+
+## Relative to GGAnimate
+
+### Pros
+
+-   Addition of interactivity
+
+-   Much faster rendering for live reports
+
+### Cons
+
+-   Can't save as a gif and send it over
+
+-   Requires frame creation
+

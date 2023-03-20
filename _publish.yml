@@ -1,0 +1,4 @@
+- source: data_interactivity_ppt.qmd
+  quarto-pub:
+    - id: 4a969e82-d5ef-457c-90ec-ddd904f4e222
+      url: 'https://quartopub.com/sites/deepshamenghani/dataviz-animation-and-interactivity'
